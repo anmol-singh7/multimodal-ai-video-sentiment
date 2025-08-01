@@ -1,0 +1,7 @@
+pandas
+torch
+torchaudio
+torchvision
+transformers
+opencv-python
+soundfile
