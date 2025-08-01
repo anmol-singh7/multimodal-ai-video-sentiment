@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from transformers import BertModel
 from torchvision import models as vision_models
@@ -48,7 +49,7 @@ class AudioEncoder(nn.Module):
         super().__init__()
         self.conv_layer = nn.Sequential(
             # Lower level features
-            nn.Conv1d(64, 64, kernal_size = 3),
+            nn.Conv1d(64, 64, kernel_size = 3),
             nn.BatchNorm1d(64),
             nn.ReLU(),
             nn.MaxPool1d(2),
@@ -74,7 +75,66 @@ class AudioEncoder(nn.Module):
         # so we need to squeeze input other wise it assume 1 as y-axis
         x = x.squeeze(1)
 
-        features = self.conv_layers(x)
+        features = self.conv_layer(x)
         # features output: [batch_size, 128, 1]
 
         return self.projection(features.squeeze(-1))
+    
+
+class MultimodalSentimentModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        # Encoders
+        self.text_encoder = TextEncoder()
+        self.video_encoder = VideoEncoder()
+        self.audio_encoder = AudioEncoder()
+
+        # Fusion Layer
+        self.fusion_layer = nn.Sequential(
+            nn.Linear(128*3, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Dropout(0.3) 
+        )
+
+        # Classification
+        self.emotion_classifier = nn.Sequential(
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(64,7) # anger, disgust, sadness, joy, neutral, surprise, fear
+        )
+
+        self.sentiment_classifier = nn.Sequential(
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(64,7) # Negative, Positive, Neutral
+        )
+
+    def forward(self, text_inputs, video_frames, audio_features):
+        text_features = self.text_encoder(
+            text_inputs['input_ids'],
+            text_inputs['attention_mask']
+        )
+
+        video_features = self.video_encoder(video_frames)
+        audio_features = self.audio_encoder(audio_features)
+
+        # Concatenate multimodal features
+        combine_features = torch.cat([
+            text_features,
+            video_features,
+            audio_features
+        ], dim = 1) # [batch_size, 128*3]
+
+        fused_features = self.fusion_layer(combine_features)
+        
+        emotion_output = self.emotion_classifier(fused_features)
+        sentiment_output = self.sentiment_classifier(fused_features)
+
+        return {
+            'emotions': emotion_output,
+            'sentiments': sentiment_output
+        }
